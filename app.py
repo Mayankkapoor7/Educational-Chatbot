@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Load PDF and embed
 @st.cache_resource
 def load_pdf_vectorstore():
     loader = PyPDFLoader("stats.pdf")
@@ -25,25 +24,18 @@ def load_pdf_vectorstore():
     embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
     db = FAISS.from_documents(chunks, embeddings)
     return db
-
-# Load QA chain using vectorstore
+    
 @st.cache_resource
 def get_qa_chain(_llm):
     db = load_pdf_vectorstore()
     retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 5})
     return RetrievalQA.from_chain_type(llm=_llm, retriever=retriever, return_source_documents=True)
-
-# External search tools
 arxiv = ArxivQueryRun(api_wrapper=ArxivAPIWrapper(top_k_results=1, doc_content_chars_max=200))
 wiki = WikipediaQueryRun(api_wrapper=WikipediaAPIWrapper(top_k_results=1, doc_content_chars_max=200))
 search = DuckDuckGoSearchRun(name="Search")
-
-# Streamlit UI
-st.set_page_config(page_title="📘 Educational Chatbot")
-st.title("📘 Educational Chatbot with PDF Knowledge & Web Tools")
-
-# Sidebar for API key
-st.sidebar.title("🔐 API Settings")
+st.set_page_config(page_title="Educational Chatbot")
+st.title("Educational Chatbot with PDF Knowledge & Web Tools")
+st.sidebar.title("API Settings")
 api_key = st.sidebar.text_input("Enter your Groq API Key:", type="password")
 
 if not api_key:
@@ -51,8 +43,6 @@ if not api_key:
     st.stop()
 else:
     st.session_state["api_key"] = api_key
-
-# Chat history
 if "messages" not in st.session_state:
     st.session_state["messages"] = [
         {"role": "assistant", "content": "Hi, I'm EduBot! I specialize in Statistics and general knowledge. Ask me anything!"}
@@ -60,15 +50,11 @@ if "messages" not in st.session_state:
 
 for msg in st.session_state.messages:
     st.chat_message(msg["role"]).write(msg["content"])
-
-# Prompt formatting
 persona_template = """You are EduBot, an educational chatbot who gives clear and direct answers.
 Focus on accuracy and helpfulness.
 User question: {question}
 """
 persona_prompt = PromptTemplate(input_variables=["question"], template=persona_template)
-
-# Handle chat input
 if prompt := st.chat_input("Ask your educational question..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.chat_message("user").write(prompt)
@@ -77,13 +63,10 @@ if prompt := st.chat_input("Ask your educational question..."):
     st_cb = StreamlitCallbackHandler(st.container(), expand_new_thoughts=False)
 
     with st.chat_message("assistant"):
-        # Step 1: Try answering from PDF
         qa_chain = get_qa_chain(_llm=llm)
         pdf_result = qa_chain(prompt)
         pdf_answer = pdf_result["result"]
         pdf_sources = pdf_result.get("source_documents", [])
-
-        # Determine if PDF is usable
         def is_good_answer(text):
             if not text or len(text.split()) < 20:
                 return False
@@ -98,7 +81,6 @@ if prompt := st.chat_input("Ask your educational question..."):
             source_texts = [doc.page_content for doc in pdf_sources]
             final_source = "📄 Source: Internal PDF knowledge base."
         else:
-            # Step 2: Fall back to external tools
             tools = [search, arxiv, wiki]
             llm_chain = LLMChain(llm=llm, prompt=persona_prompt)
             improved_prompt = llm_chain.run(question=prompt)
@@ -115,12 +97,10 @@ if prompt := st.chat_input("Ask your educational question..."):
 
             try:
                 final_response = agent.run(improved_prompt, callbacks=[st_cb])
-                final_source = "🌐 Source: Retrieved via external search tools (Wikipedia, Arxiv, DuckDuckGo)."
+                final_source = "Source: Retrieved via external search tools (Wikipedia, Arxiv, DuckDuckGo)."
             except Exception as e:
                 final_response = "Sorry, I couldn't find an answer. Please rephrase your question."
                 final_source = f"(Error: {e})"
-
-        # Display response + source
         st.session_state.messages.append({"role": "assistant", "content": f"{final_response}\n\n{final_source}"})
         st.write(final_response)
         st.caption(final_source)
